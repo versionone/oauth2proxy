@@ -21,6 +21,7 @@ from oauth2client.client import flow_from_clientsecrets
 class JsonUserPasswordFile:
     def __init__(self, filename="local_user_creds.json"):
         self.filename = filename
+        self.get_user_details()
 
     def randchars(self, count=10, alphabet='0123456789abcdefghijklmnopqrstuvwxyz'):
         return ''.join(random.choice(alphabet) for n in range(count))
@@ -56,7 +57,7 @@ class OAuth2Proxy(object):
     def __init__(self, scopes, client_secrets_file='client_secrets.json', oauth2_creds_file='stored_credentials.json', run_grant=True):
         self.client_secrets_file = client_secrets_file
         self.oauth2_creds_file = oauth2_creds_file
-        self.oauth_client = httplib2.Http()
+        self.oauth_client = httplib2.Http(disable_ssl_certificate_validation=True)
         self.open_clientsecrets(scopes)
         self.credentials = self.storage.get()
         if not self.credentials:
@@ -67,7 +68,6 @@ class OAuth2Proxy(object):
                 raise Exception("Missing oauth2 credentials in %s"%(self.oauth2_creds_file,))
 
         parts = urlparse.urlparse(self.secrets_data["server_base_uri"])
-        logging.debug(parts)
         scheme, netloc, path, params, query, fragment = parts
         self.proxy_destination = urlparse.urlunparse((scheme, netloc, "", params, query, fragment))
         logging.info("Proxying to " + self.proxy_destination)
@@ -103,7 +103,6 @@ class OAuth2Proxy(object):
         # request to the downstream (versionone) server and has a
         # response header from it.
         def my_start_response(statusline, headerlist):
-            logging.debug((statusline, headerlist))
             if statusline.startswith('401'):
                 raise DealWithUnauthorizedError((statusline,headerlist))
             return upstream_start_response(statusline, headerlist)
@@ -115,7 +114,7 @@ class OAuth2Proxy(object):
         except DealWithUnauthorizedError:
             self.refresh_tokens()
             self.addheaders(environ)
-            return self.proxy(environ, my_start_response)
+            return self.proxy(environ, upstream_start_response)
 
 
 if __name__ == '__main__':
@@ -130,6 +129,6 @@ if __name__ == '__main__':
         sys.exit(1)
 
     passfile = JsonUserPasswordFile()
-    proxy = OAuth2Proxy(scopes="query-api-1.0")
-    authed_app = AuthBasicHandler(proxy, "oauth2proxy", passfile.check_user_pass)
+    proxy_app = OAuth2Proxy(scopes="query-api-1.0")
+    authed_app = AuthBasicHandler(proxy_app, "oauth2proxy", passfile.check_user_pass)
     httpserver.serve(authed_app, host='127.0.0.1', port='5180')
